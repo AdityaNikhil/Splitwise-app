@@ -26,6 +26,15 @@ def fetch_expenses(sObj, year, month):
     start_date = f"{year}-{month:02d}-01"
     end_date = f"{year}-{month:02d}-{last_day}"
     
+    # If last day is 30 or 31, use first day of next month as end date
+    if last_day == 30 or 31:
+        if month == 12:
+            end_date = f"{int(year)+1}-01-01"
+        else:
+            end_date = f"{year}-{month+1:02d}-01"
+    else:
+        end_date = f"{year}-{month:02d}-{last_day}"
+
     all_expenses = sObj.getExpenses(group_id=group_id, dated_after=start_date, dated_before=end_date, visible=True, limit=1000)
 
     user_id = sObj.getCurrentUser().getId()
@@ -160,11 +169,14 @@ def main():
     
     with col1:
         current_year = datetime.now().year
+        # Create a list of months in descending order
+        months = list(range(12, 0, -1))  # [12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1]
+        
         selected_month = st.selectbox(
             "Select Month",
-            range(1, 13),
+            months,
             format_func=lambda x: pd.to_datetime(f'2024-{x}-01').strftime('%B'),
-            index=datetime.now().month - 1
+            index=months.index(datetime.now().month)  # Set default to current month
         )
     
     # Fetch expenses
