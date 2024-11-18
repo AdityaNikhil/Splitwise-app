@@ -16,24 +16,7 @@ def initialize_splitwise():
     sObj = Splitwise(consumer_key, consumer_secret, api_key=api_key)
     return sObj
 
-def fetch_expenses(sObj, year, month):
-    # Get the Non-group expenses group ID
-    # groups = sObj.getGroups()
-    group_id = sObj.getGroup('Non-group expenses').getId()
-
-    # Calculate start and end dates for the selected month
-    _, last_day = calendar.monthrange(int(year), month)
-    start_date = f"{year}-{month:02d}-01"
-    end_date = f"{year}-{month:02d}-{last_day}"
-    
-    # If last day is 30 or 31, use first day of next month as end date
-    if last_day == 30 or 31:
-        if month == 12:
-            end_date = f"{int(year)+1}-01-01"
-        else:
-            end_date = f"{year}-{month+1:02d}-01"
-    else:
-        end_date = f"{year}-{month:02d}-{last_day}"
+def fetch_expenses(sObj, start_date, end_date, group_id):
 
     all_expenses = sObj.getExpenses(group_id=group_id, dated_after=start_date, dated_before=end_date, visible=True, limit=1000)
 
@@ -151,6 +134,7 @@ def create_daily_trend(df):
     
     return fig
 
+
 def main():
     st.set_page_config(layout="wide", page_title="Splitwise Expense Analytics")
     
@@ -163,34 +147,67 @@ def main():
     except Exception as e:
         st.error(f"Failed to initialize Splitwise: {str(e)}")
         return
-    
-    # Create columns for filters
-    col1, col2 = st.columns([1, 3])
-    
-    with col1:
-        current_year = datetime.now().year
-        # Create a list of months in descending order
-        months = list(range(12, 0, -1))  # [12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1]
-        
-        selected_month = st.selectbox(
-            "Select Month",
-            months,
-            format_func=lambda x: pd.to_datetime(f'2024-{x}-01').strftime('%B'),
-            index=months.index(datetime.now().month)  # Set default to current month
-        )
-    
-    # Fetch expenses
-    expenses = fetch_expenses(sObj, current_year, selected_month)
-    if not expenses:
-        st.info("No expenses found for this month.")
+
+    # Fetch groups from Splitwise
+    try:
+        groups = sObj.getGroups()
+        group_options = {group.getName(): group.getId() for group in groups}
+    except Exception as e:
+        st.error(f"Failed to fetch groups: {str(e)}")
         return
 
-    # Create DataFrame
+    # Move controls to sidebar
+    sidebar = st.sidebar
+
+    # Group Selection
+    selected_group_name = sidebar.selectbox("Select Group", list(group_options.keys()))
+    selected_group_id = group_options[selected_group_name]
+
+    # Month selection
+    current_year = datetime.now().year
+    months = list(range(12, 0, -1))
+
+    selected_month = sidebar.selectbox(
+        "Select Month",
+        months,
+        format_func=lambda x: pd.to_datetime(f'{current_year}-{x}-01').strftime('%B'),
+        index=months.index(datetime.now().month)  # Default to current month
+    )
+    
+    # Toggle button for 'Discover'
+    discover_mode = sidebar.checkbox('Discover')
+
+    # Determine the date range based on the toggle button
+    if discover_mode:
+        before_month = selected_month - 1 if selected_month > 1 else 12
+        before_year = current_year if selected_month > 1 else current_year - 1
+
+        # Set start and end dates for Discover mode
+        start_date = datetime(before_year, before_month, 26)
+        end_date = datetime(current_year, selected_month, 26)
+    else:
+        _, last_day = calendar.monthrange(current_year, selected_month)
+        start_date = datetime(current_year, selected_month, 1)
+        if last_day in {30, 31}:
+            next_month = selected_month + 1 if selected_month < 12 else 1
+            next_year = current_year if selected_month < 12 else current_year + 1
+            end_date = datetime(next_year, next_month, 1)
+        else:
+            end_date = datetime(current_year, selected_month, last_day)
+
+    st.markdown(f"### Fetching expenses from `{start_date.strftime('%Y-%m-%d')}` to `{end_date.strftime('%Y-%m-%d')}`")
+
+    # Fetch expenses for the selected date range and group
+    expenses = fetch_expenses(sObj, start_date, end_date, selected_group_id)
+    if not expenses:
+        st.info("No expenses found for this period and group.")
+        return
+
+    # Create DataFrame and summary operations
     df = pd.DataFrame(expenses)
     df_summary = df.groupby('category')['amount'].sum().reset_index()
 
     # Detailed expenses table
-    st.subheader("Detailed Expenses")
     detailed_df = df[['date', 'category', 'description', 'amount']].sort_values('date', ascending=False)
     detailed_df['date'] = detailed_df['date'].dt.strftime('%Y-%m-%d')
     detailed_df['amount'] = detailed_df['amount'].round(2)
@@ -212,7 +229,7 @@ def main():
     total_amount = df['amount'].sum()
     st.metric("Total Expenses", f"${total_amount:.2f}")
     
-    # Create three columns for charts
+    # Create columns for charts
     col1, col2 = st.columns(2)
     
     with col1:
@@ -223,7 +240,6 @@ def main():
     
     # Daily trend chart
     st.plotly_chart(create_daily_trend(df), use_container_width=True)
-    
 
 if __name__ == "__main__":
     main()
