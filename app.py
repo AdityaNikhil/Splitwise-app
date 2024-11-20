@@ -5,7 +5,7 @@ from splitwise import Splitwise
 import plotly.express as px
 import plotly.graph_objects as go
 import calendar
-from datetime import datetime
+from datetime import datetime, timedelta
 
 # Initialize Splitwise
 def initialize_splitwise():
@@ -38,6 +38,13 @@ def fetch_expenses(sObj, start_date, end_date, group_id):
                     owed_share = float(user.getOwedShare())
                     paid_share = float(user.getPaidShare())
                     
+                    # Calculate how much this user is owed by others
+                    lent_share = sum(
+                        float(other.getOwedShare())
+                        for other in expense.getUsers()
+                        if other.getId() != user_id and float(other.getOwedShare()) > 0
+                    )
+
                     # If user owes money
                     if owed_share > 0:
                         month_expenses.append({
@@ -46,18 +53,17 @@ def fetch_expenses(sObj, start_date, end_date, group_id):
                             'date': date,
                             'description': expense.getDescription(),
                         })
-                    
-                    # If user paid money and doesn't owe anything
-                    if paid_share > 0 and owed_share == 0:
+
+                    # If user paid money and doesn't owe anything nor lent money to anyone
+                    if paid_share > 0 and owed_share == 0 and lent_share == 0:
                         month_expenses.append({
                             'category': category,
                             'amount': paid_share,
                             'date': date,
                             'description': expense.getDescription(),
                         })
-                    
-                    break  # Found the current user, no need to continue loop
-                    
+                    break
+
         except Exception as e:
             print(f"Error processing expense: {str(e)}")
             continue
@@ -195,7 +201,10 @@ def main():
         else:
             end_date = datetime(current_year, selected_month, last_day)
 
-    st.markdown(f"### Fetching expenses from `{start_date.strftime('%Y-%m-%d')}` to `{end_date.strftime('%Y-%m-%d')}`")
+    # Subtract one day from the end_date to print the correct end date (Only for printing purposes)
+    previous_day = end_date - timedelta(days=1)
+
+    st.markdown(f"### Fetching expenses from `{start_date.strftime('%b')}\' {start_date.strftime('%d %Y')}` to `{previous_day.strftime('%b')}\' {previous_day.strftime('%d %Y')}`")
 
     # Fetch expenses for the selected date range and group
     expenses = fetch_expenses(sObj, start_date, end_date, selected_group_id)
@@ -243,3 +252,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+
+
